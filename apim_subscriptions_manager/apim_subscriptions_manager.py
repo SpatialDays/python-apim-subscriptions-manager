@@ -105,7 +105,9 @@ class ApimSubscriptionsManager:
         if not last_name:
             raise ValueError("last_name cannot be empty")
 
-        url = f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/users/{user_id}?api-version=2022-08-01"
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/users/{user_id}"
+               f"?api-version=2022-08-01")
 
         headers = {
             "Authorization": f"Bearer {self._get_api_token()}",
@@ -123,18 +125,25 @@ class ApimSubscriptionsManager:
         response = requests.put(url, headers=headers, data=body)
 
         if response.status_code == 200:
+            logging.error(f"User with id {user_id} already exists")
             raise APIMUserAlreadyExistsError(
                 f"User with id {user_id} already exists. Status code: {response.status_code}, Response: {response.text}")
         elif response.status_code == 201:
-            logging.info(f"User with id {user_id} created successfully")
+            logging.debug(f"User with id {user_id} created successfully")
             if group_name:
-                url_for_adding_user_to_group = f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/groups/{group_name}/users/{user_id}?api-version=2022-08-01"
+                url_for_adding_user_to_group = (f"https://management.azure.com/subscriptions/"
+                                                f"{self._apim_subscription_id}/resourceGroups/"
+                                                f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/"
+                                                f"{self._apim_name}/groups/{group_name}/users/{user_id}"
+                                                f"?api-version=2022-08-01")
                 response_for_adding_user_to_group = requests.put(url_for_adding_user_to_group, headers=headers)
                 if response_for_adding_user_to_group.status_code in [200, 201]:
-                    logging.info(f"User with id {user_id} added to group {group_name} successfully")
+                    logging.debug(f"User with id {user_id} added to group {group_name} successfully")
                 else:
                     raise APIMUserCreationError(
-                        f"Failed to add user with id {user_id} to group {group_name}. Status code: {response_for_adding_user_to_group.status_code}, Response: {response_for_adding_user_to_group.text}")
+                        f"Failed to add user with id {user_id} to group {group_name}. Status code: \
+                        {response_for_adding_user_to_group.status_code},\
+                         Response: {response_for_adding_user_to_group.text}")
             return response.json()
         else:
             raise APIMUserCreationError(
