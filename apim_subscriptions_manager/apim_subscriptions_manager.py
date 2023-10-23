@@ -18,6 +18,22 @@ class APIMUserCreationError(Exception):
     pass
 
 
+class APIMUserNotFoundError(Exception):
+    pass
+
+
+class APIMSubscriptionAlreadyExistsError(Exception):
+    pass
+
+
+class APIMSubscriptionCreationError(Exception):
+    pass
+
+
+class APIMSubscriptionNotFoundError(Exception):
+    pass
+
+
 class ApimSubscriptionsManager:
     _tenant_id: str = None
     _client_id: str = None
@@ -84,16 +100,61 @@ class ApimSubscriptionsManager:
         self._api_token_expiry = token_expires_on
         return self._api_token
 
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """
+        Return auth headers required for interacting with APIM
+
+        :return: Auth headers
+        """
+        headers = {
+            "Authorization": f"Bearer {self._get_api_token()}",
+            "Content-Type": "application/json",
+        }
+        return headers
+
     def create_user_on_apim(self, user_id: str, email: str, first_name: str, last_name: str,
                             group_name: str = None) -> Dict[str, Any]:
         """
+        Create a user on APIM
 
-        :param user_id:
-        :param email:
-        :param first_name:
-        :param last_name:
-        :param group_name:
-        :return:
+        :param user_id: Unique identifier for the user
+        :param email: Email address of the user
+        :param first_name: First name of the user
+        :param last_name: Last name of the user
+        :param group_name: Name of the group to which the user should be added
+        :return: Details of the user created on APIM
+
+         Examples:
+        >>> print(create_user_on_apim("123-unique-id-for-subscription-123", "test.user@spatialdays.com", "test", "user"))
+        {
+           "id":"<redacted>",
+           "type":"Microsoft.ApiManagement/service/users",
+           "name":"123-unique-id-for-subscription-123",
+           "properties":{
+              "firstName":"test",
+              "lastName":"user",
+              "email":"test.user@spatialdays.com",
+              "state":"active",
+              "registrationDate":"2023-06-01T09:33:15.997Z",
+              "note":"None",
+              "groups":[
+                 {
+                    "id":"<redacted>",
+                    "name":"Developers",
+                    "description":"Developers is a built-in group. Its membership is managed by the system. Signed-in users fall into this group.",
+                    "builtIn":true,
+                    "type":"system",
+                    "externalId":"None"
+                 }
+              ],
+              "identities":[
+                 {
+                    "provider":"Basic",
+                    "id":"test.user@spatialdays.com"
+                 }
+              ]
+           }
+        }
         """
 
         if not user_id:
@@ -109,10 +170,7 @@ class ApimSubscriptionsManager:
                f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/users/{user_id}"
                f"?api-version=2022-08-01")
 
-        headers = {
-            "Authorization": f"Bearer {self._get_api_token()}",
-            "Content-Type": "application/json",
-        }
+        headers = self._get_auth_headers()
 
         body = json.dumps({
             "properties": {
@@ -127,7 +185,8 @@ class ApimSubscriptionsManager:
         if response.status_code == 200:
             logging.error(f"User with id {user_id} already exists")
             raise APIMUserAlreadyExistsError(
-                f"User with id {user_id} already exists. Status code: {response.status_code}, Response: {response.text}")
+                f"User with id {user_id} already exists. Status code: {response.status_code}, \
+                Response: {response.text}")
         elif response.status_code == 201:
             logging.debug(f"User with id {user_id} created successfully")
             if group_name:
@@ -148,3 +207,224 @@ class ApimSubscriptionsManager:
         else:
             raise APIMUserCreationError(
                 f"Failed to create user. Status code: {response.status_code}, Response: {response.text}")
+
+    def get_user_from_apim(self, user_id: str) -> Dict[str, Any]:
+        """
+        Gets the user details from APIM
+
+        :param user_id: The unique identifier for the user
+        :return: Details of the user from APIM
+
+        Examples:
+        >>> print(get_user_from_apim("123-unique-id-for-subscription-123"))
+        {
+            'id': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/users/123-unique-id-for-subscription-123',
+            'type': 'Microsoft.ApiManagement/service/users',
+            'name': '123-unique-id-for-subscription-123',
+            'properties': {
+                'firstName': 'test',
+                'lastName': 'user',
+                'email': 'test.user@spatialdays.com',
+                'state': 'active',
+                'registrationDate': '2023-06-01T09:33:15.997Z',
+                'note': None,
+                'identities': [{
+                    'provider': 'Basic',
+                    'id': 'test.user@spatialdays.com'
+                }]
+            }
+        }
+        """
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/users/"
+               f"{user_id}?api-version=2022-08-01")
+
+        headers = self._get_auth_headers()
+
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise APIMUserNotFoundError(
+                f"User with id {user_id} not found. Status code: {response.status_code}, Response: {response.text}")
+
+    def delete_user_from_apim(self, user_id: str) -> str:
+        """
+        Deletes a user from APIM
+
+        :param user_id: The unique identifier of the user to be deleted
+        :return: The unique identifier of the user deleted
+        Examples:
+            >>> print(delete_user_from_apim("123-unique-id-for-subscription-123"))
+            123-unique-id-for-subscription-123
+        """
+
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/users/{user_id}"
+               f"?api-version=2022-08-01")
+
+        headers = self._get_auth_headers()
+
+        response = requests.delete(url, headers=headers)
+
+        if response.status_code == 200:
+            return user_id
+        elif response.status_code == 204:
+            raise APIMUserNotFoundError(
+                f"User with id {user_id} not found or couldn't be deleted. Status code: {response.status_code}, Response: {response.text}")
+        else:
+            raise APIMUserNotFoundError(
+                f"User with id {user_id} not found or couldn't be deleted. Status code: {response.status_code}, Response: {response.text}")
+
+    def make_subscription_for_user_on_all_apis(self, user_id: str) -> Dict[str, Any]:
+        """
+        Makes a subscription for a user on all APIs
+
+        :param user_id: The unique identifier of the user
+        :return: Details of the subscription created
+
+        Examples:
+            >>> print(make_subscription_for_user_on_all_apis("123-unique-id-for-subscription-123"))
+            {
+                'id': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/subscriptions/123-unique-id-for-subscription-123',
+                'type': 'Microsoft.ApiManagement/service/subscriptions',
+                'name': '123-unique-id-for-subscription-123',
+                'properties': {
+                    'ownerId': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/users/123-unique-id-for-subscription-123',
+                    'user': {
+                        'id': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/users/123-unique-id-for-subscription-123',
+                        'firstName': 'test',
+                        'lastName': 'user',
+                        'email': 'test.user@spatialdays.com',
+                        'state': 'active',
+                        'registrationDate': '2023-06-01T09:33:15.997Z',
+                        'note': None,
+                        'groups': [],
+                        'identities': []
+                    },
+                    'scope': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/apis',
+                    'displayName': '123-unique-id-for-subscription-123',
+                    'state': 'active',
+                    'createdDate': '2023-06-01T09:37:51.0432183Z',
+                    'startDate': '2023-06-01T00:00:00Z',
+                    'expirationDate': None,
+                    'endDate': None,
+                    'notificationDate': None,
+                    'primaryKey': '<redacted>',
+                    'secondaryKey': '<redacted>',
+                    'stateComment': None,
+                    'allowTracing': False
+                }
+            }
+        """
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}"
+               f"/subscriptions/{user_id}"
+               f"?api-version=2022-08-01")
+
+        headers = {
+            "Authorization": f"Bearer {self._get_api_token()}",
+            "Content-Type": "application/json",
+        }
+
+        body = json.dumps({
+            "properties": {
+                "scope": "/apis",
+                "displayName": user_id,
+                "state": "active",
+                "ownerId": f"/users/{user_id}",
+            }
+        })
+
+        response = requests.put(url, headers=headers, data=body)
+
+        if response.status_code == 201:
+            return response.json()
+        elif response.status_code == 200:
+            raise APIMSubscriptionAlreadyExistsError(
+                f"Subscription for user with id {user_id} already exists. Status code: {response.status_code},"
+                f" Response: {response.text}")
+        else:
+            raise APIMSubscriptionCreationError(
+                f"Failed to create subscription. Status code: {response.status_code}, Response: {response.text}")
+
+    def get_subscription_for_user(self, user_id: str) -> Dict[str, Any]:
+        """
+        Retrieves a subscription for a user from the API Management (APIM) service.
+
+        :param user_id: The unique identifier of the user for whom the subscription is to be retrieved.
+        :return:  dictionary containing the details of the user's subscription. This includes the subscription ID, type,
+            name, associated properties such as owner ID, scope, display name, state, creation date, start date, expiration date,
+            end date, notification date, state comment and whether tracing is allowed.
+        Examples:
+            >>> print(get_subscription_for_user("123-unique-id-for-subscription-123"))
+            {
+                'id': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/subscriptions/123-unique-id-for-subscription-123',
+                'type': 'Microsoft.ApiManagement/service/subscriptions',
+                'name': '123-unique-id-for-subscription-123',
+                'properties': {
+                    'ownerId': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/users/123-unique-id-for-subscription-123',
+                    'scope': '/subscriptions/<redacted>/resourceGroups/<redacted>/providers/Microsoft.ApiManagement/service/<redacted>/apis',
+                    'displayName': '123-unique-id-for-subscription-123',
+                    'state': 'active',
+                    'createdDate': '2023-06-01T09:37:51.043Z',
+                    'startDate': '2023-06-01T00:00:00Z',
+                    'expirationDate': None,
+                    'endDate': None,
+                    'notificationDate': None,
+                    'stateComment': None,
+                    'allowTracing': False
+                }
+            }
+        """
+
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}"
+               f"/subscriptions/{user_id}"
+               f"?api-version=2022-08-01")
+
+        headers = self._get_auth_headers()
+
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise APIMSubscriptionNotFoundError(
+                f"Subscription for user with id {user_id} not found. Status code: {response.status_code},"
+                f" Response: {response.text}")
+
+    def get_subscription_secrets_for_user(self, user_id: str) -> Dict[str, str]:
+        """
+        Retrieves the primary and secondary keys for a user's subscription from the API Management (APIM) service.
+
+        Args:
+            user_id (str): The unique identifier of the user for whom the subscription keys are to be retrieved.
+
+        Returns:
+            dict: A dictionary containing the primary and secondary keys for the user's subscription.
+
+        Examples:
+            >>> print(get_subscription_secrets_for_user("123-unique-id-for-subscription-123"))
+            {
+                'primaryKey': '<redacted>',
+                'secondaryKey': '<redacted>'
+            }
+        """
+
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/"
+               f"subscriptions/{user_id}/listSecrets"
+               f"?api-version=2022-08-01")
+
+        headers = self._get_auth_headers()
+
+        response = requests.post(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise APIMSubscriptionNotFoundError(
+                f"Subscription for user with id {user_id} not found. Status code: {response.status_code}, "
+                f"Response: {response.text}")
