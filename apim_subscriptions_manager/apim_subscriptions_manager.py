@@ -34,6 +34,10 @@ class APIMSubscriptionNotFoundError(Exception):
     pass
 
 
+class APIMSubscriptionKeyRefreshError(Exception):
+    pass
+
+
 class ApimSubscriptionsManager:
     _tenant_id: str = None
     _client_id: str = None
@@ -357,6 +361,7 @@ class ApimSubscriptionsManager:
         :return:  dictionary containing the details of the user's subscription. This includes the subscription ID, type,
             name, associated properties such as owner ID, scope, display name, state, creation date, start date, expiration date,
             end date, notification date, state comment and whether tracing is allowed.
+
         Examples:
             >>> print(get_subscription_for_user("123-unique-id-for-subscription-123"))
             {
@@ -399,11 +404,8 @@ class ApimSubscriptionsManager:
         """
         Retrieves the primary and secondary keys for a user's subscription from the API Management (APIM) service.
 
-        Args:
-            user_id (str): The unique identifier of the user for whom the subscription keys are to be retrieved.
-
-        Returns:
-            dict: A dictionary containing the primary and secondary keys for the user's subscription.
+        :param user_id: The unique identifier of the user for whom the subscription keys are to be retrieved.
+        :return: dictionary containing the primary and secondary keys for the user's subscription.
 
         Examples:
             >>> print(get_subscription_secrets_for_user("123-unique-id-for-subscription-123"))
@@ -428,3 +430,75 @@ class ApimSubscriptionsManager:
             raise APIMSubscriptionNotFoundError(
                 f"Subscription for user with id {user_id} not found. Status code: {response.status_code}, "
                 f"Response: {response.text}")
+
+    def delete_subscription_for_user(self, user_id: str) -> str:
+        """
+        Deletes a subscription for a user in the API Management (APIM) service.
+
+        :param user_id: The unique identifier of the user for whom the subscription is to be deleted.
+
+        :return: The unique identifier of the user for whom the subscription was deleted.
+        Examples:
+            >>> print(delete_subscription_for_user("123-unique-id-for-subscription-123"))
+            '123-unique-id-for-subscription-123'
+        """
+
+        url = (f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+               f"{self._apim_rg_name}/providers/Microsoft.ApiManagement/service/{self._apim_name}/subscriptions"
+               f"/{user_id}?"
+               f"api-version=2022-08-01")
+
+        headers = self._get_auth_headers()
+
+        response = requests.delete(url, headers=headers)
+
+        if response.status_code == 200:
+            return user_id
+        elif response.status_code == 204:
+            raise APIMSubscriptionNotFoundError(
+                f"Subscription for user with id {user_id} not found or couldn't be deleted. Status code:"
+                f" {response.status_code}, Response: {response.text}")
+        else:
+            raise APIMSubscriptionNotFoundError(
+                f"Subscription for user with id {user_id} not found or couldn't be deleted. Status code:"
+                f" {response.status_code}, Response: {response.text}")
+
+    def regenerate_subscription_for_user(self, user_id: str) -> str:
+        """
+        Regenerates the subscription keys for a user in the API Management (APIM) service.
+
+        :param user_id: The unique identifier of the user for whom the subscription keys are to be regenerated.
+
+        :return: The unique identifier of the user for whom the subscription keys were regenerated.
+        Examples:
+            >>> print(regenerate_subscription_for_user("123-unique-id-for-subscription-123"))
+            '123-unique-id-for-subscription-123'
+        """
+
+        urls = [
+            (
+                f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+                f"{self._apim_rg_name}/"
+                f"providers/Microsoft.ApiManagement/service/{self._apim_name}/subscriptions/{user_id}/"
+                f"regeneratePrimaryKey?api-version=2022-08-01"),
+            (
+                f"https://management.azure.com/subscriptions/{self._apim_subscription_id}/resourceGroups/"
+                f"{self._apim_rg_name}/"
+                f"providers/Microsoft.ApiManagement/service/{self._apim_name}/subscriptions/{user_id}/"
+                f"regenerateSecondaryKey?api-version=2022-08-01")
+        ]
+
+        logging.debug(f"Urls are {urls}")
+        headers = self._get_auth_headers()
+        responses = []
+        for url in urls:
+            response = requests.post(url, headers=headers)
+            responses.append(response)
+
+        if all(response.status_code == 204 for response in responses):
+            return user_id
+        else:
+            raise APIMSubscriptionKeyRefreshError(
+                f"Failed to refresh subscription keys for user with id {user_id}. "
+                f"Status codes: {[response.status_code for response in responses]}, "
+                f"Responses: {[response.text for response in responses]}")
